@@ -21,7 +21,6 @@ def calc_hc_coord(row):
     except:
         ret = None
 
-    print(ret.x.value, ret.y.value, ret.z.value)
     return ret
 
 
@@ -32,15 +31,16 @@ def update_full_df(df, out_file):
     :param df: Dataframe containing SHARPs data
     :param out_file: Filename to output modified dataframe
     """
+    df_size = df.shape[0]
 
     batch_count = 1
     batch_size = 10000
 
     while batch_size * batch_count+1 < df_size:
         end = (batch_count * batch_size) - 1
-        if end > df.shape[0]:
+        if end > df_size:
             print("Last batch")
-            end = df.shape[0] - 1
+            end = df_size - 1
         start = (batch_count * batch_size) - batch_size
         print("Starting Batch {}, {} rows remaining".format(batch_count, df_size - start))
 
@@ -48,7 +48,7 @@ def update_full_df(df, out_file):
         # If last row in batch hasn't been updated, update whole batch
         # print("Data: {}".format(df.loc[df.index[end]],"hc_x"))
         if isnan(df.loc[df.index[end], "hc_x"]):
-            hc_data = calc_hc_coord(df.loc[df.index[end]])
+            # hc_data = calc_hc_coord(df.loc[df.index[end]])
             # df.loc[df.index[end], ["hc_x", "hc_y", "hc_z"]] = [float(hc_data.x.value), hc_data.y.value,
             #                                                        hc_data.z.value]
             ind = start
@@ -60,7 +60,8 @@ def update_full_df(df, out_file):
 
                 ind +=1
         batch_count += 1
-        df.to_csv(out_file)
+        if df.shape[0] == df_size:
+            df.to_csv(out_file)
         # print("Shape of dataframe: {}".format(df.shape))
 
     # last = (batch_count * batch_size) - batch_size
@@ -72,10 +73,13 @@ def update_full_df(df, out_file):
 
 def update_missing_values(df, out_file):
     index = df['hc_x'].index[df['hc_x'].apply(isnan)]
+    print("Missing {} Values, updating now".format(len(index)))
+    for ind in index:
+        row = df.loc[df.index[ind]]
+        hc_data = calc_hc_coord(row)
 
-    for i in index:
-        print(df.loc[df.index[i], "hc_x"])
-
+        df.loc[df.index[ind], ["hc_x", "hc_y", "hc_z"]] = [float(hc_data.x.value), hc_data.y.value, hc_data.z.value]
+    df.to_csv(out_file)
 
 if __name__ == "__main__":
     
@@ -91,8 +95,8 @@ if __name__ == "__main__":
     print("Size of full dataset: {}".format(df_size))
     output_filename = "modified_data.csv"
 
-    update_full_df(data, output_filename)
-    # update_missing_values(data, output_filename)
+    # update_full_df(data, output_filename)
+    update_missing_values(data, output_filename)
     
     
     
