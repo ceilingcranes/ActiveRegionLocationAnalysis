@@ -5,12 +5,6 @@ import astropy.units as u
 import pickle
 import numpy as np
 
-
-# def calculate_distance_graph(coord_objs):
-
-# def calc_dist_sphere(x1,y1,z1,x2,y2,z2):
-
-
 def calculate_distance_graph(series):
     # get all indices that match, get skycoord objects
     skycoord_list = []
@@ -53,7 +47,6 @@ def calculate_distance_graph(series):
 def thresholded_distance_graph(dist_graph, threshold):
     # Given a distance graph and a threshold, remove all connections with distance greater than threshold and return
     # a new graph
-
     thresholded_graph = dict()
     # initialize graph
 
@@ -62,12 +55,46 @@ def thresholded_distance_graph(dist_graph, threshold):
         for ind, val in enumerate(dist_graph[key]):
             if val <= threshold:
                 thresholded_graph[key][ind] = val
-
+        thresholded_graph[key][key] = float('inf')
     return thresholded_graph
 
-# def get_connected_components(graph):
-    # Given a graph in the form of an adjacency list with a dictionary, get the total number of components
+def get_connected_components(graph):
+    # Given a graph in the form of an adjacency list with a dictionary, return a 2d list containing the indices of each
+    # component. I.e. if there were 2 components in a 6 node graph, with 3 nodes in eachcomponent, this would return a
+    # 2x3 2d array.
+    def _visit_val(index):
+        visited[index] = True
+        for i in range(len(graph[index])):
+            if graph[index][i] != 0 and i != index and not visited[i]:
+                component_list.append(i)
+                print("Added {} to component list: {}".format(i, component_list))
+                _visit_val(i)
 
+    visited = [False for i in graph.keys()]
+    components = []
+    component_list = []
+    for ind in graph.keys():
+        if not visited[ind]:
+            component_list = [ind]
+            _visit_val(ind)
+            components.append(component_list)
+            print("Adding {} to components: {}".format(component_list, components))
+
+    return components
+
+# def flare_in_component(graph, rows):
+    # Returns a list of indices that are part of a component that had at least one node flare at least once in the 24hrs
+    # following t_rec, as given by the dataframe rows in rows.
+
+
+
+def get_mean_dist(graph):
+    sum = 0
+    for key in graph.keys():
+        distances = np.delete(graph[key],key)
+        if len(distances) != 0:
+            sum += np.sum(distances)/len(distances)
+    return sum / len(graph.keys())
 
 if __name__ == "__main__":
     df = pd.read_csv("distance_data.csv")
@@ -79,18 +106,19 @@ if __name__ == "__main__":
     batch_size = 1000
     graph_filename = "dist_networks.obj"
     output_filename = "distance_data.csv"
-    added_columns = ["closest_dist"]
-    save_data = False
+    added_columns = ["closest_dist", "connected_components_mean_thresh", "total_nodes", "mean_distance", "flare_in_component"]
+    save_data = True
     for c in added_columns:
         if c not in df.columns:
             df[c] = float('NaN')
     try:
-        with open(graph_filename, 'r') as filename:
+        with open(graph_filename, 'rb') as filename:
             all_distance_graphs = pickle.load(filename)
     except:
         all_distance_graphs = dict()
+        print("Unable to load stored files.")
 
-    out_file = open(graph_filename, 'w')
+    out_file = open(graph_filename, 'wb')
 
     ind = 1
 
@@ -101,14 +129,18 @@ if __name__ == "__main__":
         # Will expect a dict of index -> list of feature updates
         t_rec = df.loc[df.index[ind], "T_REC"]
         vals = df.loc[df["T_REC"]==t_rec]
+        added_graph = False
         # print(df.loc[df["T_REC"]==t_rec,"closest_dist"])
         if np.isnan(df.loc[df.index[ind],"closest_dist"]):
             if not t_rec in all_distance_graphs.keys():
+                # print("Values: [{}]={}".format(vals["T_REC"], vals["HARPNUM"]))
                 dists = calculate_distance_graph(vals)
-
+                # print("Full graph: {}".format(dists))
+                added_graph = True
                 all_distance_graphs[t_rec] = dists
             else:
                 dists = all_distance_graphs[t_rec]
+
 
             for key, ind in enumerate(vals.index):
                 # print(key, ind)
@@ -117,11 +149,19 @@ if __name__ == "__main__":
                 closest = min(dists[key])
                 df.loc[df.index[ind], "closest_dist"] = closest
 
+                thresh =get_mean_dist(dists)
+                mean_thresh = thresholded_distance_graph(dists, thresh)
+                # print("Thresholded at {}, graph: {}".format(thresh, mean_thresh))
+                components = get_connected_components(mean_thresh)
+                df.loc[df.index[ind], "connected_components_mean_thresh"] = components
+
         if ind % batch_size == 0 and save_data:
-            pickle.dump(all_distance_graphs, out_file)
-            df.to_csv(output_filename)
+            if added_graph:
+                pickle.dump(all_distance_graphs, out_file)
+                print("Added distance graph that was not found in pickle!")
+            df.to_csv(output_filename, index = False)
             print("Batch {} Finished".format(ind/batch_size))
         ind += 1
 
     out_file.close()
-    df.to_csv(output_filename)
+    df.to_csv(output_filename, index =False)
